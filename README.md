@@ -1,37 +1,158 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ai-notes
+
+A full-stack AI-powered notes app built with Next.js, Supabase, and LLM integration.
+
+Users can create and manage personal notes, get AI-generated summaries, and interact with their notes through a natural language chat interface.
+
+---
+
+## Features
+
+- **Authentication** — email/password login and signup via Supabase Auth
+- **Notes CRUD** — create, list, and delete personal notes
+- **AI Summary** — summarize all notes using a Groq LLM via Supabase Edge Function
+- **AI Chat** — natural language interface to manage notes using function calling
+- **Row Level Security** — each user can only access their own data, enforced at the database level
+
+---
+
+## Tech Stack
+
+| Layer      | Technology                                        |
+| ---------- | ------------------------------------------------- |
+| Frontend   | Next.js 16 (App Router), TypeScript, Tailwind CSS |
+| Backend    | Supabase (PostgreSQL + Auth + Edge Functions)     |
+| AI         | Groq API (llama / mistral models)                 |
+| Deployment | Vercel (frontend), Supabase (edge functions)      |
+
+---
+
+## Architecture
+
+```
+Browser (React)
+    │
+    ├── Supabase Client (anon key)
+    │       └── queries filtered by RLS (auth.uid())
+    │
+    └── /api/chat (Next.js API Route)
+            └── Groq API — function calling
+                    └── executes create_note / list_notes / delete_note
+
+Supabase Edge Function (/functions/v1/summarize)
+    ├── validates JWT
+    ├── fetches user notes (RLS enforced)
+    └── calls Groq API with secret key (never exposed to browser)
+```
+
+---
+
+## Security
+
+**Row Level Security (RLS)** is enabled on the `notes` table. All queries are automatically filtered by `auth.uid()` — the authenticated user's ID extracted from the JWT. This means even if someone obtains the public anon key, they can only access their own data.
+
+```sql
+-- Example policy
+create policy "users see own notes"
+  on notes for select
+  using ( user_id = auth.uid() );
+```
+
+**API keys** (Groq) are stored as Supabase secrets and never reach the browser. The Edge Function acts as a secure server-side proxy.
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### 1. Clone the repo
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/seu-usuario/ai-notes.git
+cd ai-notes
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Install dependencies
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Set up Supabase
 
-## Learn More
+- Create a project at [supabase.com](https://supabase.com)
+- Run the SQL migrations in the Supabase SQL Editor:
+  - `supabase/migrations/001_notes.sql`
+  - `supabase/migrations/002_rls_policies.sql`
 
-To learn more about Next.js, take a look at the following resources:
+### 4. Configure environment variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Create a `.env` file at the project root:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```properties
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+GROQ_API_KEY=your-groq-key
+GEMINI_API_KEY=your-gemini-key  # optional, for function calling
+```
 
-## Deploy on Vercel
+### 5. Deploy the Edge Function
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm install -g supabase
+supabase login
+supabase link --project-ref your-project-ref
+supabase secrets set GROQ_API_KEY=your-groq-key
+supabase functions deploy summarize
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# ai-notes
+### 6. Run locally
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Project Structure
+
+```
+ai-notes/
+├── app/
+│   ├── api/chat/route.ts        # function calling API route
+│   ├── chat/page.tsx            # AI chat interface
+│   ├── login/page.tsx           # auth page
+│   └── notes/page.tsx           # notes management
+├── lib/
+│   └── supabase.ts              # Supabase client
+├── supabase/
+│   ├── functions/
+│   │   └── summarize/index.ts   # Edge Function (Groq + RLS)
+│   └── migrations/
+│       ├── 001_notes.sql        # table schema
+│       └── 002_rls_policies.sql # RLS policies
+└── .env                         # environment variables (never commit)
+```
+
+---
+
+## Key Concepts
+
+### Row Level Security
+
+RLS policies live at the database level and filter every query automatically based on the authenticated user. No `WHERE user_id = ...` needed in application code.
+
+### Edge Functions
+
+Supabase Edge Functions run server-side on Deno. Used here to call the Groq API securely — the secret key never reaches the browser. The function receives the user's JWT and creates a Supabase client with it, so RLS continues to apply inside the function.
+
+### Function Calling
+
+The AI chat uses LLM function calling: the model decides which function to invoke (`create_note`, `list_notes`, `delete_note`) and returns structured JSON arguments. The application executes the actual database operation and returns the result to the model for a final natural language response.
+
+---
+
+## License
+
+MIT
